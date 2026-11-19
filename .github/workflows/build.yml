@@ -1,0 +1,91 @@
+name: Build Installers
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            targets: nsis
+          - os: macos-latest
+            label: macOS
+            targets: dmg
+          - os: ubuntu-22.04
+            label: Linux
+            targets: deb,appimage
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            src-tauri -> target
+
+      # 按平台写入对应 bundle targets（本地配置默认 nsis 仅用于 Windows）
+      - name: Configure bundle targets
+        shell: bash
+        run: |
+          node -e "
+            const fs=require('fs');
+            const p='src-tauri/tauri.conf.json';
+            const j=JSON.parse(fs.readFileSync(p,'utf8'));
+            j.bundle.targets='${{ matrix.targets }}'.split(',').map(s=>s.trim());
+            fs.writeFileSync(p,JSON.stringify(j,null,2));
+          "
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Build and package
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: 'NexTerm ${{ github.ref_name }}'
+          releaseDraft: true
+          prerelease: false
+          args: --ci
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexterm-${{ matrix.label }}
+          path: |
+            src-tauri/target/release/bundle/**/*.nsis.*
+            src-tauri/target/release/bundle/**/*.dmg
+            src-tauri/target/release/bundle/**/*.deb
+            src-tauri/target/release/bundle/**/*.AppImage
+          if-no-files-found: warn
