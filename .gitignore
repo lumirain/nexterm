@@ -1,0 +1,11 @@
+# 依赖与构建产物
+node_modules/
+target/
+dist/
+installer/
+src-tauri/gen/
+
+# 临时文件
+*.log
+*.tmp
+.rea-evidence/

@@ -1,0 +1,23 @@
+[package]
+name = "nexterm"
+version = "1.0.0"
+description = "NexTerm —— 独立实现的跨平台终端客户端"
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "nexterm_lib"
+# 桌面端只需要 rlib：MinGW 在为 cdylib 自动导出全部符号时会因
+# "export ordinal too large" 链接失败（GNU 工具链特有）。
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+nexterm-core = { path = "../crates/nexterm-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+portable-pty = "0.9"
+
