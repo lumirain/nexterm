@@ -731,41 +731,58 @@ impl Term {
     pub fn snapshot(&self) -> Vec<Row> {
         let mut rows = Vec::with_capacity(self.rows);
         for y in 0..self.rows {
-            let mut spans: Vec<Span> = Vec::with_capacity(8);
-            for x in 0..self.cols {
-                let cell = self.grid[self.idx(x, y)];
-                if cell.wide_tail {
-                    continue;
-                }
-                let (fg, bg) = (cell.fg, cell.bg);
-                match spans.last_mut() {
-                    Some(last) if last.fg == fg && last.bg == bg && last.attr == cell.attr => {
-                        last.text.push(cell.ch)
-                    }
-                    _ => spans.push(Span {
-                        text: cell.ch.to_string(),
-                        fg,
-                        bg,
-                        attr: cell.attr,
-                    }),
-                }
-            }
-            // 去掉行尾默认底色的空白，避免每行都撑满整宽
-            while let Some(last) = spans.last_mut() {
-                if last.bg != Color::Default {
-                    break;
-                }
-                let trimmed = last.text.trim_end_matches(' ');
-                if trimmed.is_empty() {
-                    spans.pop();
-                } else {
-                    last.text = trimmed.to_string();
-                    break;
-                }
-            }
-            rows.push(Row { spans });
+            rows.push(self.row_from_cells(&self.grid[y * self.cols..(y + 1) * self.cols]));
         }
         rows
+    }
+
+    /// 把一行 Cell 合并成渲染 Row（相邻同样式合并 + 去行尾空白）。
+    fn row_from_cells(&self, cells: &[Cell]) -> Row {
+        let mut spans: Vec<Span> = Vec::with_capacity(8);
+        for cell in cells {
+            if cell.wide_tail {
+                continue;
+            }
+            let (fg, bg) = (cell.fg, cell.bg);
+            match spans.last_mut() {
+                Some(last) if last.fg == fg && last.bg == bg && last.attr == cell.attr => {
+                    last.text.push(cell.ch)
+                }
+                _ => spans.push(Span {
+                    text: cell.ch.to_string(),
+                    fg,
+                    bg,
+                    attr: cell.attr,
+                }),
+            }
+        }
+        while let Some(last) = spans.last_mut() {
+            if last.bg != Color::Default {
+                break;
+            }
+            let trimmed = last.text.trim_end_matches(' ');
+            if trimmed.is_empty() {
+                spans.pop();
+            } else {
+                last.text = trimmed.to_string();
+                break;
+            }
+        }
+        Row { spans }
+    }
+
+    /// 回滚缓冲中的历史行数（供前端判断是否需要显示回滚滚动条）。
+    pub fn scrollback_len(&self) -> usize {
+        self.scrollback.len()
+    }
+
+    /// 生成回滚历史行（按时间从旧到新），每行与 `snapshot()` 的 Row 格式一致。
+    /// 与当前屏幕分开返回，前端可只在向上滚动时渲染，避免每帧传输全部历史。
+    pub fn scrollback_rows(&self) -> Vec<Row> {
+        self.scrollback
+            .iter()
+            .map(|line| self.row_from_cells(line))
+            .collect()
     }
 }
 
@@ -872,6 +889,32 @@ mod tests {
         t.feed(b"a\r\nb\r\nc");
         assert_eq!(t.scrollback.len(), 1);
         assert_eq!(t.cy, 1);
+    }
+
+    #[test]
+    fn scrollback_rows_expose_history() {
+        let mut t = Term::new(10, 2);
+        t.feed(b"alpha\r\nbeta\r\ngamma\r\ndelta");
+        // 4 行内容 + 2 行屏幕 → 前 2 行进入回滚
+        assert_eq!(t.scrollback_len(), 2);
+        let hist = t.scrollback_rows();
+        assert_eq!(hist.len(), 2);
+        assert_eq!(hist[0].spans[0].text, "alpha");
+        assert_eq!(hist[1].spans[0].text, "beta");
+        // 回滚行与当前屏幕互不包含
+        let screen = t.snapshot();
+        assert_eq!(screen.len(), 2);
+        assert_ne!(screen[0].spans[0].text, "alpha");
+    }
+
+    #[test]
+    fn highlight_rule_case_and_style_fields_deserialize() {
+        // 覆盖新增字段能从 JSON 缺省反序列化（旧 store 平滑升级）
+        let json = r#"{"enabled":true,"pattern":"WARN","regex":false,"foreground":null,"background":null,"bold":false,"underline":false,"note":""}"#;
+        let r: crate::model::HighlightRule = serde_json::from_str(json).unwrap();
+        assert!(!r.case_sensitive);
+        assert!(!r.italic);
+        assert!(!r.strikeout);
     }
 
     #[test]

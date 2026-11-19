@@ -9,9 +9,11 @@ import { TerminalPane } from './components/TerminalPane'
 import { TitleBar } from './components/TitleBar'
 import { Toolbar } from './components/Toolbar'
 import { AboutDialog } from './dialogs/AboutDialog'
+import { FindDialog } from './dialogs/FindDialog'
 import { HighlightDialog } from './dialogs/HighlightDialog'
 import { PaletteDialog } from './dialogs/PaletteDialog'
 import { SessionDialog } from './dialogs/SessionDialog'
+import { onTermCommand } from './lib/termBus'
 import { useApp } from './state/store'
 
 export default function App() {
@@ -28,6 +30,12 @@ export default function App() {
       if (e.key === 'F11') {
         e.preventDefault()
         app.runCommand('view.fullscreen')
+        return
+      }
+      // Ctrl+F 查找：即使在终端里也拦截（终端本身不消费 Ctrl+F）
+      if (mod && !e.shiftKey && k === 'f') {
+        e.preventDefault()
+        app.runCommand('edit.find')
         return
       }
       if (!mod) return
@@ -80,6 +88,13 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [app])
+
+  // 终端右键/菜单发出的查找命令 → 打开查找对话框
+  useEffect(() => {
+    return onTermCommand((cmd) => {
+      if (cmd.kind === 'find') app.openDialog({ kind: 'find' })
+    })
   }, [app])
 
   if (!app.ready) {
@@ -154,6 +169,8 @@ function DialogHost() {
       return <PaletteDialog />
     case 'about':
       return <AboutDialog />
+    case 'find':
+      return <FindDialog />
     default:
       return null
   }

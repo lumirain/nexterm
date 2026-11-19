@@ -177,10 +177,13 @@ pub fn seed() -> Store {
         enabled: true,
         pattern: p.into(),
         regex,
+        case_sensitive: false,
         foreground: Some(fg.into()),
         background: bg.map(String::from),
         bold,
+        italic: false,
         underline: false,
+        strikeout: false,
         note: note.into(),
     };
 

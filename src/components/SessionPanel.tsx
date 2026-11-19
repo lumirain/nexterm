@@ -31,7 +31,7 @@ const PROTO_STYLE: Record<Protocol, { label: string; cls: string; icon: typeof S
 export function SessionPanel() {
   const app = useApp()
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const [ctx, setCtx] = useState<{ x: number; y: number; id: string } | null>(null)
+  const [ctx, setCtx] = useState<{ x: number; y: number; id: string; kind: 'session' | 'folder' } | null>(null)
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
 
   const needle = app.filter.trim().toLowerCase()
@@ -156,7 +156,7 @@ export function SessionPanel() {
               byFolder={byFolder}
               onContext={(e, id) => {
                 e.preventDefault()
-                setCtx({ x: e.clientX, y: e.clientY, id })
+                setCtx({ x: e.clientX, y: e.clientY, id, kind: 'folder' })
               }}
             />
           ))}
@@ -168,7 +168,7 @@ export function SessionPanel() {
             depth={0}
             onContext={(e) => {
               e.preventDefault()
-              setCtx({ x: e.clientX, y: e.clientY, id: s.id })
+              setCtx({ x: e.clientX, y: e.clientY, id: s.id, kind: 'session' })
             }}
           />
         ))}
@@ -203,32 +203,62 @@ export function SessionPanel() {
           x={ctx.x}
           y={ctx.y}
           onClose={() => setCtx(null)}
-          items={[
-            {
-              label: '打开会话',
-              icon: Play,
-              run: () => void app.openSession(ctx.id),
-            },
-            {
-              label: '会话属性…',
-              icon: Pencil,
-              run: () => app.openDialog({ kind: 'session', sessionId: ctx.id }),
-            },
-            {
-              label: '创建副本',
-              icon: Copy,
-              run: () => {
-                const s = app.sessions.find((x) => x.id === ctx.id)
-                if (s) shoot(s)
-              },
-            },
-            {
-              label: '删除',
-              icon: Trash2,
-              danger: true,
-              run: () => void app.deleteSession(ctx.id),
-            },
-          ]}
+          items={
+            ctx.kind === 'folder'
+              ? [
+                  {
+                    label: '重命名分组…',
+                    icon: Pencil,
+                    run: () => {
+                      const f = app.folders.find((x) => x.id === ctx.id)
+                      if (!f) return
+                      const name = window.prompt('分组名称', f.name)
+                      if (name && name.trim()) void app.saveFolder({ ...f, name: name.trim() })
+                    },
+                  },
+                  {
+                    label: '新建子分组',
+                    icon: FolderPlus,
+                    run: () => void app.saveFolder({ id: uid('f'), name: '新建分组', parent: ctx.id }),
+                  },
+                  {
+                    label: '删除分组',
+                    icon: Trash2,
+                    danger: true,
+                    run: () => {
+                      if (window.confirm('删除该分组？其中的会话与子分组将移到根目录。')) {
+                        void app.deleteFolder(ctx.id)
+                      }
+                    },
+                  },
+                ]
+              : [
+                  {
+                    label: '打开会话',
+                    icon: Play,
+                    run: () => void app.openSession(ctx.id),
+                  },
+                  {
+                    label: '会话属性…',
+                    icon: Pencil,
+                    run: () => app.openDialog({ kind: 'session', sessionId: ctx.id }),
+                  },
+                  {
+                    label: '创建副本',
+                    icon: Copy,
+                    run: () => {
+                      const s = app.sessions.find((x) => x.id === ctx.id)
+                      if (s) shoot(s)
+                    },
+                  },
+                  {
+                    label: '删除',
+                    icon: Trash2,
+                    danger: true,
+                    run: () => void app.deleteSession(ctx.id),
+                  },
+                ]
+          }
         />
       )}
     </div>

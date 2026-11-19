@@ -21,12 +21,18 @@ export function applyRules(spans: Span[], rules: HighlightRule[]): Span[] {
 
   const text = cells.map((c) => c.ch).join('')
 
+  // 每格记录首次被哪条规则命中。对齐 Xshell 的 first-match-wins：
+  // 一条文字同时符合多条规则时，以列表中靠前的规则为准，后规则不再覆盖。
+  const claimed = new Array<boolean>(cells.length).fill(false)
+
   for (const rule of active) {
     let re: RegExp
     try {
+      // case_sensitive 为真时不加 i 标志；否则忽略大小写。
+      const flags = rule.case_sensitive ? 'g' : 'gi'
       re = rule.regex
-        ? new RegExp(rule.pattern, 'gi')
-        : new RegExp(escapeRe(rule.pattern), 'gi')
+        ? new RegExp(rule.pattern, flags)
+        : new RegExp(escapeRe(rule.pattern), flags)
     } catch {
       continue // 规则写错就跳过，不能让整屏渲染挂掉
     }
@@ -38,11 +44,15 @@ export function applyRules(spans: Span[], rules: HighlightRule[]): Span[] {
         continue
       }
       for (let i = m.index; i < m.index + m[0].length && i < cells.length; i++) {
+        if (claimed[i]) continue
         const c = cells[i]
         if (rule.foreground) c.fg = rule.foreground
         if (rule.background) c.bg = rule.background
         if (rule.bold) c.b = true
+        if (rule.italic) c.i = true
         if (rule.underline) c.u = true
+        if (rule.strikeout) c.s = true
+        claimed[i] = true
       }
     }
   }

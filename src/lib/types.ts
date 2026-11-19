@@ -44,11 +44,23 @@ export interface HighlightRule {
   enabled: boolean
   pattern: string
   regex: boolean
+  /** Xshell 的 Case Sensitive：true=区分大小写，false=忽略大小写 */
+  case_sensitive: boolean
   foreground: string | null
   background: string | null
   bold: boolean
+  italic: boolean
   underline: boolean
+  strikeout: boolean
   note: string
+}
+
+/** 突出显示集的导入/导出文件格式（本项目自有格式，非任何第三方格式） */
+export interface HighlightFile {
+  format: 'nexterm-highlight'
+  version: number
+  exported_at: number
+  sets: HighlightSet[]
 }
 
 export interface HighlightSet {
@@ -100,6 +112,7 @@ export interface Snapshot {
   cols: number
   rows: number
   sent: number
+  history_len: number
   cursor: { x: number; y: number; visible: boolean }
   bg: string
   fg: string

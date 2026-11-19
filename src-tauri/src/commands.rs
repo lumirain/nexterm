@@ -96,6 +96,8 @@ pub struct Snapshot {
     cols: u16,
     rows: u16,
     sent: u64,
+    /// 回滚缓冲中的历史行数（用于前端提示与滚动上限）
+    history_len: usize,
     cursor: Cursor,
     bg: String,
     fg: String,
@@ -351,6 +353,7 @@ pub async fn tab_snapshot(
             cols: tab.cols,
             rows: tab.rows,
             sent: tab.sent,
+            history_len: tab.term.lock().map(|t| t.scrollback_len()).unwrap_or(0),
             cursor: Cursor { x: 0, y: 0, visible: false },
             bg: tab.palette.background.clone(),
             fg: tab.palette.foreground.clone(),
@@ -371,11 +374,21 @@ pub async fn tab_snapshot(
         cols: tab.cols,
         rows: tab.rows,
         sent: tab.sent,
+        history_len: term.scrollback_len(),
         cursor: Cursor { x: term.cx, y: term.cy, visible: term.cursor_visible },
         bg: tab.palette.background.clone(),
         fg: tab.palette.foreground.clone(),
         lines,
     })
+}
+
+/// 读取回滚缓冲历史行。只在用户向上滚动查看时调用，避免每帧传输。
+#[tauri::command]
+pub async fn tab_scrollback(app: State<'_, App>, id: u64) -> Result<Vec<RowDto>, String> {
+    let mut rt = app.runtime.lock().unwrap();
+    let tab = rt.get_mut(id).ok_or("标签不存在")?;
+    let guard = tab.term.lock().map_err(|_| "终端锁定失败")?;
+    Ok(guard.scrollback_rows().iter().map(|r| row_dto(r, &tab.palette)).collect())
 }
 
 /// 让前端能拿到一个"尚未实现"的统一说法，避免各处文案不一致。

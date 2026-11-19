@@ -1,6 +1,7 @@
-import { Highlighter, Plus, Trash2, ArrowUp, ArrowDown, Copy } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import type { HighlightRule, HighlightSet } from '../lib/types'
+import { Highlighter, Plus, Trash2, ArrowUp, ArrowDown, Copy, Download, Upload } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
+import type { HighlightFile, HighlightRule, HighlightSet } from '../lib/types'
 import { uid, useApp } from '../state/store'
 import { Modal } from './Modal'
 
@@ -8,11 +9,45 @@ const EMPTY_RULE: HighlightRule = {
   enabled: true,
   pattern: '',
   regex: false,
+  case_sensitive: false,
   foreground: '#cf222e',
   background: null,
   bold: true,
+  italic: false,
   underline: false,
+  strikeout: false,
   note: '',
+}
+
+/** 导入文件的校验用电容器：把任意 JSON 收敛成合法的 HighlightSet。 */
+function sanitizeSet(raw: unknown, index: number): HighlightSet | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const name = typeof o.name === 'string' && o.name.trim() ? o.name.trim() : `导入的集合 ${index + 1}`
+  const rulesIn = Array.isArray(o.rules) ? o.rules : []
+  const rules: HighlightRule[] = []
+  for (const r of rulesIn) {
+    if (!r || typeof r !== 'object') continue
+    const x = r as Record<string, unknown>
+    if (typeof x.pattern !== 'string' || !x.pattern.length) continue
+    const color = (v: unknown): string | null =>
+      typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v) ? v : null
+    rules.push({
+      enabled: x.enabled !== false,
+      pattern: x.pattern,
+      regex: x.regex === true,
+      case_sensitive: x.case_sensitive === true,
+      foreground: color(x.foreground) ?? '#cf222e',
+      background: color(x.background),
+      bold: x.bold === true,
+      italic: x.italic === true,
+      underline: x.underline === true,
+      strikeout: x.strikeout === true,
+      note: typeof x.note === 'string' ? x.note : '',
+    })
+  }
+  // 每个导入的集合都重新分配 id，避免覆盖本地已有集合。
+  return { id: uid('h'), name, rules }
 }
 
 /**
@@ -72,6 +107,71 @@ export function HighlightDialog() {
   }
 
   const rule = draft?.rules[row]
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  // 导出当前集合（或全部集合）：自有 JSON 格式，保存到用户下载目录。
+  const exportSets = (all: boolean) => {
+    const picked = all ? sets : current ? [current] : []
+    if (!picked.length) {
+      toast.error('没有可导出的突出显示集')
+      return
+    }
+    const payload: HighlightFile = {
+      format: 'nexterm-highlight',
+      version: 1,
+      exported_at: Date.now(),
+      sets: JSON.parse(JSON.stringify(picked)),
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = all
+      ? `nexterm-highlight-${new Date().toISOString().slice(0, 10)}.json`
+      : `nexterm-highlight-${picked[0].name.replace(/[^\w\u4e00-\u9fa5-]+/g, '_')}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    toast.success(`已导出 ${picked.length} 个突出显示集`)
+  }
+
+  // 导入：接受本工具导出的 JSON；也兼容仅含 sets 数组的对象。
+  const importSets = async (file: File) => {
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text) as Record<string, unknown>
+      const rawSets = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed.sets)
+          ? parsed.sets
+          : null
+      if (!rawSets) {
+        toast.error('文件格式不正确：缺少 sets 数组')
+        return
+      }
+      if (parsed.format && parsed.format !== 'nexterm-highlight') {
+        toast.error('不是 NexTerm 突出显示集文件')
+        return
+      }
+      const cleaned = rawSets
+        .map((s, i) => sanitizeSet(s, i))
+        .filter((s): s is HighlightSet => s !== null)
+      if (!cleaned.length) {
+        toast.error('文件中没有有效的突出显示集')
+        return
+      }
+      // 逐个写入（后端 upsert 按 id 落盘），随后选中第一个导入项。
+      for (const s of cleaned) await app.saveHighlight(s)
+      setSelectedId(cleaned[0].id)
+      const skipped = rawSets.length - cleaned.length
+      toast.success(
+        `已导入 ${cleaned.length} 个突出显示集${skipped > 0 ? `，跳过 ${skipped} 个无效项` : ''}`,
+      )
+    } catch {
+      toast.error('导入失败：文件不是有效的 JSON')
+    }
+  }
 
   return (
     <Modal
@@ -168,6 +268,47 @@ export function HighlightDialog() {
             >
               取消选择
             </button>
+            <div className="my-0.5 h-px bg-line" />
+            <button
+              type="button"
+              className="btn h-7 justify-start px-2 text-[11.5px]"
+              disabled={!current}
+              onClick={() => exportSets(false)}
+              title="导出当前选中的集合"
+            >
+              <Download size={12} strokeWidth={2.2} />
+              导出选中
+            </button>
+            <button
+              type="button"
+              className="btn h-7 justify-start px-2 text-[11.5px]"
+              disabled={!sets.length}
+              onClick={() => exportSets(true)}
+              title="导出全部集合"
+            >
+              <Download size={12} strokeWidth={2.2} />
+              导出全部
+            </button>
+            <button
+              type="button"
+              className="btn h-7 justify-start px-2 text-[11.5px]"
+              onClick={() => fileRef.current?.click()}
+              title="从 JSON 文件导入集合"
+            >
+              <Upload size={12} strokeWidth={2.2} />
+              导入
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) void importSets(f)
+                e.target.value = ''
+              }}
+            />
           </div>
         </div>
 
@@ -290,59 +431,64 @@ export function HighlightDialog() {
 
         {/* 选中规则的细节 */}
         {rule && (
-          <div className="flex shrink-0 items-end gap-3 border-t border-line bg-surface-2 px-3 py-2">
-            <label className="field w-[86px]">
-              <span>前景色</span>
-              <input
-                type="color"
-                value={rule.foreground ?? '#000000'}
-                onChange={(e) => patchRule(row, { foreground: e.target.value })}
-                className="h-[26px] w-full cursor-pointer rounded border border-line-strong bg-surface px-0.5"
-              />
-            </label>
-            <label className="field w-[86px]">
-              <span>背景色</span>
-              <input
-                type="color"
-                value={rule.background ?? '#ffffff'}
-                onChange={(e) => patchRule(row, { background: e.target.value })}
-                className="h-[26px] w-full cursor-pointer rounded border border-line-strong bg-surface px-0.5"
-              />
-            </label>
-            <button
-              type="button"
-              className="btn h-7 text-[11.5px]"
-              onClick={() => patchRule(row, { background: null })}
-            >
-              清除背景
-            </button>
-            <label className="flex h-[26px] items-center gap-1.5 text-[11.5px]">
-              <input
-                type="checkbox"
-                checked={rule.bold}
-                onChange={(e) => patchRule(row, { bold: e.target.checked })}
-                className="h-3.5 w-3.5 accent-[var(--c-accent)]"
-              />
-              加粗
-            </label>
-            <label className="flex h-[26px] items-center gap-1.5 text-[11.5px]">
-              <input
-                type="checkbox"
-                checked={rule.underline}
-                onChange={(e) => patchRule(row, { underline: e.target.checked })}
-                className="h-3.5 w-3.5 accent-[var(--c-accent)]"
-              />
-              下划线
-            </label>
-            <label className="flex h-[26px] items-center gap-1.5 text-[11.5px]">
-              <input
-                type="checkbox"
-                checked={rule.regex}
-                onChange={(e) => patchRule(row, { regex: e.target.checked })}
-                className="h-3.5 w-3.5 accent-[var(--c-accent)]"
-              />
-              按正则匹配
-            </label>
+          <div className="shrink-0 border-t border-line bg-surface-2 px-3 py-2">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="field w-[86px]">
+                <span>前景色</span>
+                <input
+                  type="color"
+                  value={rule.foreground ?? '#000000'}
+                  onChange={(e) => patchRule(row, { foreground: e.target.value })}
+                  className="h-[26px] w-full cursor-pointer rounded border border-line-strong bg-surface px-0.5"
+                />
+              </label>
+              <label className="field w-[86px]">
+                <span>背景色</span>
+                <input
+                  type="color"
+                  value={rule.background ?? '#ffffff'}
+                  onChange={(e) => patchRule(row, { background: e.target.value })}
+                  className="h-[26px] w-full cursor-pointer rounded border border-line-strong bg-surface px-0.5"
+                />
+              </label>
+              <button
+                type="button"
+                className="btn h-7 text-[11.5px]"
+                onClick={() => patchRule(row, { background: null })}
+                title="沿用终端底色"
+              >
+                清除背景
+              </button>
+              <span className="mb-1 text-[10.5px] text-fg-dim">样式</span>
+              <label className="flex h-[26px] items-center gap-1.5 text-[11.5px]">
+                <input type="checkbox" checked={rule.bold} onChange={(e) => patchRule(row, { bold: e.target.checked })} className="h-3.5 w-3.5 accent-[var(--c-accent)]" />
+                加粗
+              </label>
+              <label className="flex h-[26px] items-center gap-1.5 text-[11.5px]">
+                <input type="checkbox" checked={rule.italic} onChange={(e) => patchRule(row, { italic: e.target.checked })} className="h-3.5 w-3.5 accent-[var(--c-accent)]" />
+                斜体
+              </label>
+              <label className="flex h-[26px] items-center gap-1.5 text-[11.5px]">
+                <input type="checkbox" checked={rule.underline} onChange={(e) => patchRule(row, { underline: e.target.checked })} className="h-3.5 w-3.5 accent-[var(--c-accent)]" />
+                下划线
+              </label>
+              <label className="flex h-[26px] items-center gap-1.5 text-[11.5px]">
+                <input type="checkbox" checked={rule.strikeout} onChange={(e) => patchRule(row, { strikeout: e.target.checked })} className="h-3.5 w-3.5 accent-[var(--c-accent)]" />
+                删除线
+              </label>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-3 border-t border-line pt-2">
+              <span className="text-[10.5px] text-fg-dim">匹配</span>
+              <label className="flex h-[24px] items-center gap-1.5 text-[11.5px]">
+                <input type="checkbox" checked={rule.regex} onChange={(e) => patchRule(row, { regex: e.target.checked })} className="h-3.5 w-3.5 accent-[var(--c-accent)]" />
+                正则表达式
+              </label>
+              <label className="flex h-[24px] items-center gap-1.5 text-[11.5px]">
+                <input type="checkbox" checked={rule.case_sensitive} onChange={(e) => patchRule(row, { case_sensitive: e.target.checked })} className="h-3.5 w-3.5 accent-[var(--c-accent)]" />
+                区分大小写
+              </label>
+              <span className="ml-auto text-[10px] text-fg-dim">多条命中时以上方规则优先</span>
+            </div>
           </div>
         )}
       </div>

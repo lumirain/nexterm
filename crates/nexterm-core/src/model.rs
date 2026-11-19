@@ -134,6 +134,10 @@ pub struct Palette {
 }
 
 /// 高亮规则。`pattern` 为纯文本时按子串匹配，`regex = true` 时按正则匹配。
+///
+/// 语义对齐桌面终端工具的「突出显示集」：支持大小写敏感、正则、前景/背景、
+/// 加粗/斜体/下划线/删除线。`case_sensitive = false` 时忽略大小写（默认，
+/// 与历史数据兼容）；`background = None` 表示沿用终端底色（对应 Term Color）。
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HighlightRule {
     #[serde(default)]
@@ -142,13 +146,19 @@ pub struct HighlightRule {
     #[serde(default)]
     pub regex: bool,
     #[serde(default)]
+    pub case_sensitive: bool,
+    #[serde(default)]
     pub foreground: Option<String>,
     #[serde(default)]
     pub background: Option<String>,
     #[serde(default)]
     pub bold: bool,
     #[serde(default)]
+    pub italic: bool,
+    #[serde(default)]
     pub underline: bool,
+    #[serde(default)]
+    pub strikeout: bool,
     #[serde(default)]
     pub note: String,
 }

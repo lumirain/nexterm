@@ -29,6 +29,7 @@ pub fn run() {
             commands::tab_close,
             commands::tab_set_palette,
             commands::tab_snapshot,
+            commands::tab_scrollback,
             commands::feature_reason,
         ])
         .run(tauri::generate_context!())

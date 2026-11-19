@@ -200,15 +200,24 @@ fn build_command(session: &Session) -> Result<CommandBuilder, String> {
             }
         }
         Protocol::Ssh => {
-            if session.host.is_empty() {
-                return Err("会话缺少主机地址".into());
+            if session.host.trim().is_empty() {
+                return Err("会话缺少主机地址，请在属性中填写主机".into());
+            }
+            if session.port == 0 {
+                return Err(format!("SSH 端口无效：{}（应为 1–65535）", session.port));
             }
             let mut c = CommandBuilder::new("ssh");
             c.arg("-tt");
             c.arg("-p");
             c.arg(session.port.to_string());
             c.arg("-o");
-            c.arg("ServerAliveInterval=30");
+            // keepalive 取自会话设置：0 表示关闭，否则按设置的秒数发送心跳。
+            let ka = if session.keepalive == 0 {
+                0
+            } else {
+                session.keepalive.max(1).min(3600)
+            };
+            c.arg(format!("ServerAliveInterval={ka}"));
             c.arg("-o");
             c.arg("StrictHostKeyChecking=accept-new");
             let target = if session.user.is_empty() {

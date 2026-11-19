@@ -440,7 +440,13 @@ function FieldControl({
           value={Number(value ?? 0)}
           min={field.min}
           max={field.max}
-          onChange={(e) => onChange(Number(e.target.value))}
+          onChange={(e) => {
+            const n = Number(e.target.value)
+            if (!Number.isFinite(n)) return
+            const lo = field.min ?? 0
+            const hi = field.max ?? 65535
+            onChange(Math.max(lo, Math.min(hi, Math.trunc(n))))
+          }}
         />
       ) : field.kind === 'textarea' ? (
         <textarea

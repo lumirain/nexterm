@@ -21,6 +21,7 @@ import type {
   Tab,
 } from '../lib/types'
 import { UNIMPLEMENTED } from '../components/menus'
+import { emitTermCommand } from '../lib/termBus'
 
 export type DialogKind = 'session' | 'highlight' | 'palette' | 'about' | 'find'
 
@@ -62,6 +63,7 @@ export interface AppCtx {
   sendData: (id: number, data: string) => void
   resizeTerm: (id: number, cols: number, rows: number) => void
   setPaletteForTab: (tabId: number, paletteId: string) => void
+  apiScrollback: (id: number) => Promise<import('../lib/types').SnapRow[]>
 
   saveSession: (s: Session) => Promise<void>
   deleteSession: (id: string) => Promise<void>
@@ -243,6 +245,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     void api.tabSetPalette(tabId, paletteId).catch((e) => toast.error(String(e)))
   }, [])
 
+  const apiScrollback = useCallback(
+    (id: number) => api.tabScrollback(id),
+    [],
+  )
+
   const saveSession = useCallback(async (s: Session) => {
     try {
       const next = await api.sessionUpsert(s)
@@ -368,7 +375,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return
 
         case 'edit.copy':
-          document.execCommand('copy')
+          emitTermCommand({ kind: 'copy' })
           return
         case 'edit.paste':
           void navigator.clipboard
@@ -379,7 +386,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             .catch(() => toast.error('无法读取剪贴板'))
           return
         case 'edit.selectAll':
-          if (t) document.execCommand('selectAll')
+          emitTermCommand({ kind: 'selectAll' })
+          return
+        case 'edit.find':
+        case 'edit.findNext':
+          emitTermCommand({ kind: 'find' })
+          return
+        case 'edit.copyAll':
+          emitTermCommand({ kind: 'selectAll' })
+          window.setTimeout(() => emitTermCommand({ kind: 'copy' }), 60)
           return
         case 'edit.resetTerm':
           if (t) sendData(t.id, '\x1bc')
@@ -529,6 +544,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     sendData,
     resizeTerm,
     setPaletteForTab,
+    apiScrollback,
     saveSession,
     deleteSession,
     saveFolder,

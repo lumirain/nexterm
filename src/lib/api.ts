@@ -41,6 +41,7 @@ export const api = {
     invoke<void>('tab_set_palette', { id, paletteId }),
   tabSnapshot: (id: number, knownRev?: number) =>
     invoke<Snapshot>('tab_snapshot', { id, knownRev }),
+  tabScrollback: (id: number) => invoke<import('./types').SnapRow[]>('tab_scrollback', { id }),
 }
 
 /** 判断当前是否跑在 Tauri 窗口里（浏览器里打开 vite 时没有 IPC）。 */
