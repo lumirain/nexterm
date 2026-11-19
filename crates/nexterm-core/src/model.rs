@@ -58,6 +58,9 @@ fn default_terminal_type() -> String {
 fn default_encoding() -> String {
     "UTF-8".into()
 }
+fn default_auth_method() -> String {
+    "password".into()
+}
 fn default_palette() -> String {
     "nexterm-light".into()
 }
@@ -106,6 +109,15 @@ pub struct Session {
     pub terminal_type: String,
     #[serde(default = "default_encoding")]
     pub encoding: String,
+
+    /// 认证。`auth_method`：password（默认）/ keyboard-interactive。
+    /// `save_password` 只是一个开关：密码本体存放在系统凭据管理器
+    /// （Windows 凭据管理器 / macOS 钥匙串 / Linux Secret Service），
+    /// **永不写入 store.json**——与桌面终端工具的实践一致。
+    #[serde(default = "default_auth_method")]
+    pub auth_method: String,
+    #[serde(default)]
+    pub save_password: bool,
 
     #[serde(default)]
     pub created_at: i64,

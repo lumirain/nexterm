@@ -20,4 +20,5 @@ nexterm-core = { path = "../crates/nexterm-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 portable-pty = "0.9"
+keyring = { version = "3.6.3", features = ["windows-native", "apple-native", "linux-native-sync-persistent"] }
 

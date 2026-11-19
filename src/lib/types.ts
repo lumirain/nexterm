@@ -22,6 +22,10 @@ export interface Session {
   retry_limit: number
   terminal_type: string
   encoding: string
+  /** 认证方式：password（默认）/ keyboard-interactive */
+  auth_method: string
+  /** 记住密码开关。密码本体存系统凭据库，不进 store.json */
+  save_password: boolean
   created_at: number
 }
 

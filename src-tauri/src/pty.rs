@@ -77,6 +77,22 @@ pub fn open(tab_id: u64, session: &Session, palette: Palette, cols: u16, rows: u
     cmd.env("TERM", &session.terminal_type);
     cmd.env("COLORTERM", "truecolor");
 
+    // 勾选了「记住密码」且凭据库里有密码：让 ssh 通过 SSH_ASKPASS 自动应答。
+    // askpass 指向本程序自身，ssh 派生它时继承 NEXTERM_ASKPASS_SESSION 标记，
+    // 子进程据此从凭据库取密码（详见 cred.rs）。没有凭据则不做任何事，
+    // ssh 会在终端里提示手动输入。
+    if matches!(session.protocol, Protocol::Ssh) && session.save_password {
+        if crate::cred::has_password(&session.id) {
+            if let Ok(exe) = std::env::current_exe() {
+                cmd.env("SSH_ASKPASS", exe);
+                cmd.env("SSH_ASKPASS_REQUIRE", "force");
+                // 老版本 OpenSSH 仍以 DISPLAY 是否设置作为启用 askpass 的条件
+                cmd.env("DISPLAY", "nexterm-askpass");
+                cmd.env(crate::cred::ASKPASS_SESSION_ENV, &session.id);
+            }
+        }
+    }
+
     let child = pair
         .slave
         .spawn_command(cmd)
@@ -220,6 +236,15 @@ fn build_command(session: &Session) -> Result<CommandBuilder, String> {
             c.arg(format!("ServerAliveInterval={ka}"));
             c.arg("-o");
             c.arg("StrictHostKeyChecking=accept-new");
+            // 验证方法偏好：password / keyboard-interactive（二者的提示都走 askpass）。
+            // 显式声明可跳过 GSSAPI 等方式的协商等待。
+            if session.auth_method == "keyboard-interactive" {
+                c.arg("-o");
+                c.arg("PreferredAuthentications=keyboard-interactive,password");
+            } else {
+                c.arg("-o");
+                c.arg("PreferredAuthentications=password,keyboard-interactive");
+            }
             let target = if session.user.is_empty() {
                 session.host.clone()
             } else {

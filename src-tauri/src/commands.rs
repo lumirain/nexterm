@@ -147,7 +147,38 @@ pub async fn session_delete(app: State<'_, App>, id: String) -> Result<Store, St
         s.sessions.retain(|x| x.id != id);
     }
     app.persist()?;
+    // 同步清掉系统凭据库里的密码，不留孤儿条目
+    let _ = crate::cred::delete(&id);
     Ok(app.store.lock().unwrap().clone())
+}
+
+// ---------------- 凭证（密码存系统凭据库，不进 store.json） ----------------
+
+#[tauri::command]
+pub async fn credential_set(
+    app: State<'_, App>,
+    session_id: String,
+    password: String,
+) -> Result<(), String> {
+    // 会话必须真实存在，防止往凭据库里塞垃圾条目
+    let exists = {
+        let s = app.store.lock().unwrap();
+        s.sessions.iter().any(|x| x.id == session_id)
+    };
+    if !exists {
+        return Err("会话不存在，无法保存密码".into());
+    }
+    crate::cred::set_password(&session_id, &password)
+}
+
+#[tauri::command]
+pub async fn credential_delete(session_id: String) -> Result<bool, String> {
+    crate::cred::delete(&session_id)
+}
+
+#[tauri::command]
+pub async fn credential_exists(session_id: String) -> Result<bool, String> {
+    Ok(crate::cred::has_password(&session_id))
 }
 
 #[tauri::command]

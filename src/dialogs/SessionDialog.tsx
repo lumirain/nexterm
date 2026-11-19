@@ -1,15 +1,18 @@
 import { Settings2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import type { Protocol, Session } from '../lib/types'
+import { api, inTauri } from '../lib/api'
 import { uid, useApp } from '../state/store'
 import { Modal } from './Modal'
 
 type FieldKey = keyof Session
 
 interface Field {
-  key: FieldKey
+  /** 'password' 是虚拟字段：值不进 Session，经系统凭据库单独存取 */
+  key: FieldKey | 'password'
   label: string
-  kind?: 'text' | 'number' | 'select' | 'textarea' | 'check'
+  kind?: 'text' | 'number' | 'select' | 'textarea' | 'check' | 'password'
   options?: { value: string; label: string }[]
   optionsFrom?: 'palettes' | 'highlights' | 'folders'
   hint?: string
@@ -69,13 +72,24 @@ const CATEGORIES: Category[] = [
       {
         id: 'auth',
         label: '用户身份验证',
-        intro: '本项目不自建密钥库：SSH 认证复用系统 OpenSSH 的配置与 known_hosts。',
+        intro:
+          '密码保存在系统凭据管理器（Windows 凭据管理器 / macOS 钥匙串），不写入配置文件；连接时自动应答。',
         fields: [
-          { key: 'user', label: '登录用户名', kind: 'text' },
+          { key: 'user', label: '用户名', kind: 'text' },
+          {
+            key: 'auth_method',
+            label: '验证方法',
+            kind: 'select',
+            options: [
+              { value: 'password', label: 'Password' },
+              { value: 'keyboard-interactive', label: 'Keyboard Interactive' },
+            ],
+          },
+          { key: 'password', label: '密码', kind: 'password', hint: '留空保持不变' },
+          { key: 'save_password', label: '记住密码（保存到系统凭据管理器）', kind: 'check', wide: true },
           { key: 'terminal_type', label: '终端类型', kind: 'text' },
         ],
         todo: [
-          '密码保存：需要在系统凭据存储（DPAPI / Keychain）里加密存放，当前不落盘。',
           '私钥管理：将调用 ssh-keygen 并在设置里指定密钥路径，当前未接线。',
         ],
       },
@@ -223,6 +237,8 @@ function blank(): Session {
     retry_limit: 0,
     terminal_type: 'xterm-256color',
     encoding: 'UTF-8',
+    auth_method: 'password',
+    save_password: false,
     created_at: Date.now(),
   }
 }
@@ -241,6 +257,24 @@ export function SessionDialog() {
   const [draft, setDraft] = useState<Session>(source)
   const [page, setPage] = useState('general')
   const [closed, setClosed] = useState<Record<string, boolean>>({})
+  // 密码是「虚拟字段」：不进 Session/store.json，单独经系统凭据库存取。
+  const [pwDraft, setPwDraft] = useState('')
+  const [pwSaved, setPwSaved] = useState(false) // 凭据库里当前是否已有
+  const pwInitial = useRef(false) // 打开对话框那一刻是否已有（判断「变更」）
+
+  useEffect(() => {
+    if (inTauri() && !isNew) {
+      void api.credentialExists(source.id).then(
+        (ok) => {
+          setPwSaved(ok)
+          pwInitial.current = ok
+        },
+        () => undefined,
+      )
+    } else {
+      pwInitial.current = false
+    }
+  }, [source.id, isNew])
 
   const current = CATEGORIES.flatMap((c) => c.pages.map((p) => ({ ...p, cat: c.label }))).find(
     (p) => p.id === page,
@@ -282,6 +316,22 @@ export function SessionDialog() {
       user: draft.user.trim(),
     }
     await app.saveSession(payload)
+
+    // ---- 凭据同步（密码只进系统凭据库，永不写入 store.json）----
+    if (inTauri()) {
+      try {
+        if (payload.save_password && pwDraft) {
+          await api.credentialSet(payload.id, pwDraft)
+          toast.success('密码已保存到系统凭据管理器')
+        } else if (!payload.save_password && pwInitial.current) {
+          const removed = await api.credentialDelete(payload.id)
+          if (removed) toast.info('已清除保存的密码')
+        }
+      } catch (e) {
+        toast.error(`密码保存失败：${String(e)}`)
+      }
+    }
+
     app.closeDialog()
     if (connect) await app.openSession(payload.id)
   }
@@ -359,13 +409,24 @@ export function SessionDialog() {
 
           {current?.fields && (
             <div className="grid max-w-[540px] grid-cols-2 gap-x-4 gap-y-3">
-              {current.fields.map((f) => (
+              {current.fields
+                .filter((f) =>
+                  // 认证相关字段只对 SSH 有意义
+                  current.id === 'auth' && draft.protocol !== 'ssh'
+                    ? !['auth_method', 'password', 'save_password'].includes(String(f.key))
+                    : true,
+                )
+                .map((f) => (
                 <FieldControl
                   key={String(f.key) + f.label}
                   field={f}
-                  value={draft[f.key]}
+                  value={f.kind === 'password' ? (pwDraft as never) : draft[f.key as FieldKey]}
                   options={options(f)}
-                  onChange={(v) => patch(f.key, v as never)}
+                  pwSaved={f.kind === 'password' ? pwSaved : undefined}
+                  onChange={(v) => {
+                    if (f.kind === 'password') setPwDraft(String(v))
+                    else patch(f.key as FieldKey, v as never)
+                  }}
                 />
               ))}
             </div>
@@ -400,11 +461,14 @@ function FieldControl({
   field,
   value,
   options,
+  pwSaved,
   onChange,
 }: {
   field: Field
   value: Session[FieldKey]
   options: { value: string; label: string }[]
+  /** 仅 password 虚拟字段：系统凭据库里是否已有保存的密码 */
+  pwSaved?: boolean
   onChange: (v: string | number | boolean) => void
 }) {
   const wide = field.wide || field.kind === 'textarea' || field.kind === 'check'
@@ -433,6 +497,22 @@ function FieldControl({
             </option>
           ))}
         </select>
+      ) : field.kind === 'password' ? (
+        <span className="relative flex items-center">
+          <input
+            type="password"
+            className="input pr-16"
+            value={String(value ?? '')}
+            placeholder={pwSaved ? '已保存，输入以更换' : '输入密码'}
+            autoComplete="new-password"
+            onChange={(e) => onChange(e.target.value)}
+          />
+          {pwSaved && (
+            <span className="pointer-events-none absolute right-2 rounded bg-emerald-600/15 px-1.5 py-px text-[9.5px] font-medium text-emerald-600 dark:text-emerald-400">
+              已保存
+            </span>
+          )}
+        </span>
       ) : field.kind === 'number' ? (
         <input
           type="number"

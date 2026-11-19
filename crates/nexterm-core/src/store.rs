@@ -77,6 +77,8 @@ fn session(
         retry_limit: 0,
         terminal_type: "xterm-256color".into(),
         encoding: "UTF-8".into(),
+        auth_method: "password".into(),
+        save_password: false,
         created_at: 0,
     }
 }

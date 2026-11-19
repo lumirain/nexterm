@@ -42,6 +42,13 @@ export const api = {
   tabSnapshot: (id: number, knownRev?: number) =>
     invoke<Snapshot>('tab_snapshot', { id, knownRev }),
   tabScrollback: (id: number) => invoke<import('./types').SnapRow[]>('tab_scrollback', { id }),
+
+  credentialSet: (sessionId: string, password: string) =>
+    invoke<void>('credential_set', { sessionId, password }),
+  credentialDelete: (sessionId: string) =>
+    invoke<boolean>('credential_delete', { sessionId }),
+  credentialExists: (sessionId: string) =>
+    invoke<boolean>('credential_exists', { sessionId }),
 }
 
 /** 判断当前是否跑在 Tauri 窗口里（浏览器里打开 vite 时没有 IPC）。 */

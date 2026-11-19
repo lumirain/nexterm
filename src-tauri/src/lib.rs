@@ -3,7 +3,8 @@
 //! 分层：`nexterm-core`（模型 / 存储 / VT）→ `pty`（会话运行时）
 //! → `commands`（暴露给前端的唯一入口）。
 
-mod commands;
+pub mod commands;
+pub mod cred;
 mod pty;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -30,6 +31,9 @@ pub fn run() {
             commands::tab_set_palette,
             commands::tab_snapshot,
             commands::tab_scrollback,
+            commands::credential_set,
+            commands::credential_delete,
+            commands::credential_exists,
             commands::feature_reason,
         ])
         .run(tauri::generate_context!())
